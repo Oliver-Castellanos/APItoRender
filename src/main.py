@@ -1,62 +1,113 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
+from typing import List, Optional
 
 from src.predict import clasificar_transaccion
+from src.analisis_financiero import analizar_finanzas
 
-
-# ==========================
-# Crear aplicación
-# ==========================
 
 app = FastAPI(
-    title="API de Clasificación de Transacciones",
-    description="API para clasificar descripciones de transacciones financieras.",
+    title="API Finanzas",
+    description="API para clasificación de transacciones y análisis financiero",
     version="1.0.0"
 )
 
 
-# ==========================
-# Modelo de entrada
-# ==========================
+# ============================================================
+# MODELOS PARA /predict
+# ============================================================
 
-class Transaccion(BaseModel):
+class TransaccionPredict(BaseModel):
     descripcion: str
 
 
-# ==========================
-# Endpoint raíz
-# ==========================
+# ============================================================
+# MODELOS PARA /analizar-finanzas
+# ============================================================
+
+class TransaccionFinanciera(BaseModel):
+    usuarioId: Optional[str] = None
+    fecha: Optional[str] = None
+    tipo: str
+    monto: float
+    categoria: str
+
+
+class AnalisisFinancieroRequest(BaseModel):
+    transacciones: List[TransaccionFinanciera]
+
+
+# ============================================================
+# ENDPOINT PRINCIPAL
+# ============================================================
 
 @app.get("/")
 def root():
     return {
-        "mensaje": "API de clasificación de transacciones funcionando"
+        "mensaje": "API de Finanzas funcionando",
+        "endpoints": [
+            "/predict",
+            "/analizar-finanzas",
+            "/docs"
+        ]
     }
 
 
-# ==========================
-# Health check
-# ==========================
-
-@app.get("/health")
-def health():
-    return {
-        "status": "ok"
-    }
-
-
-# ==========================
-# Predicción
-# ==========================
+# ============================================================
+# CLASIFICACIÓN DE TRANSACCIONES
+# ============================================================
 
 @app.post("/predict")
-def predict(transaccion: Transaccion):
+def predict(transaccion: TransaccionPredict):
+    try:
+        categoria = clasificar_transaccion(
+            transaccion.descripcion
+        )
 
-    categoria = clasificar_transaccion(
-        transaccion.descripcion
-    )
+        return {
+            "descripcion": transaccion.descripcion,
+            "categoria": categoria
+        }
 
-    return {
-        "descripcion": transaccion.descripcion,
-        "categoria": categoria
-    }
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error al clasificar la transacción: {str(e)}"
+        )
+
+
+# ============================================================
+# ANÁLISIS FINANCIERO
+# ============================================================
+
+@app.post("/analizar-finanzas")
+def analizar_finanzas_endpoint(
+    request: AnalisisFinancieroRequest
+):
+    try:
+
+        # Convertimos los objetos Pydantic a diccionarios
+        transacciones = [
+            transaccion.model_dump()
+            for transaccion in request.transacciones
+        ]
+
+        # Ejecutamos todo el análisis financiero
+        resultado = analizar_finanzas(transacciones)
+
+        return resultado
+
+    except ValueError as e:
+        # Errores esperados relacionados con los datos,
+        # por ejemplo, que no existan ingresos.
+        raise HTTPException(
+            status_code=400,
+            detail=str(e)
+        )
+
+    except Exception as e:
+        # Errores inesperados
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error al analizar las finanzas: {str(e)}"
+        )
